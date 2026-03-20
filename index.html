@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Password Strength Checker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #f5f5f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; padding: 1rem; }
+
+  .wrap { background: #fff; border: 1px solid #e0e0e0; border-radius: 14px; padding: 2rem; width: 100%; max-width: 460px; }
+
+  .input-row { position: relative; margin-bottom: 1.25rem; }
+  .pw-input { width: 100%; padding: 0.65rem 2.8rem 0.65rem 0.9rem; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; font-family: monospace; outline: none; background: #fafafa; color: #111; transition: border-color 0.2s; }
+  .pw-input:focus { border-color: #888; }
+  .toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #999; font-size: 16px; padding: 4px; }
+
+  .meter { display: flex; gap: 5px; margin-bottom: 0.75rem; }
+  .bar { flex: 1; height: 5px; border-radius: 3px; background: #e5e5e5; transition: background 0.3s; }
+
+  .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
+  .strength-label { font-size: 14px; font-weight: 600; color: #aaa; }
+  .score-badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; font-weight: 500; }
+
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #aaa; margin-bottom: 0.6rem; }
+
+  .rules { display: flex; flex-direction: column; gap: 6px; margin-bottom: 1rem; }
+  .rule { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #aaa; transition: color 0.2s; }
+  .rule.pass { color: #111; }
+  .rule.fail { color: #e53e3e; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #ddd; flex-shrink: 0; transition: background 0.2s; }
+  .pass .dot { background: #38a169; }
+  .fail .dot { background: #e53e3e; }
+
+  .crack { font-size: 13px; color: #666; margin-top: 0.5rem; padding: 10px 14px; background: #f7f7f7; border-radius: 8px; border: 1px solid #eee; }
+  .crack span { font-weight: 600; color: #111; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="input-row">
+    <input id="pw" class="pw-input" type="password" placeholder="Enter password…" autocomplete="off" />
+    <button class="toggle" onclick="toggleVis()">&#128065;</button>
+  </div>
+
+  <div class="meter">
+    <div class="bar" id="b1"></div>
+    <div class="bar" id="b2"></div>
+    <div class="bar" id="b3"></div>
+    <div class="bar" id="b4"></div>
+  </div>
+
+  <div class="label-row">
+    <span class="strength-label" id="slabel">Enter a password</span>
+    <span class="score-badge" id="sbadge"></span>
+  </div>
+
+  <div class="section-title">Requirements</div>
+  <div class="rules" id="rules"></div>
+  <div class="crack" id="crack" style="display:none">Estimated crack time: <span id="cracktime"></span></div>
+
+</div>
+<script>
+const rules = [
+  { id:'len8',    label:'At least 8 characters',               test: p => p.length >= 8 },
+  { id:'len12',   label:'At least 12 characters (recommended)', test: p => p.length >= 12 },
+  { id:'upper',   label:'Uppercase letter (A–Z)',               test: p => /[A-Z]/.test(p) },
+  { id:'lower',   label:'Lowercase letter (a–z)',               test: p => /[a-z]/.test(p) },
+  { id:'digit',   label:'Number (0–9)',                         test: p => /\d/.test(p) },
+  { id:'special', label:'Special character (!@#$…)',            test: p => /[^A-Za-z0-9]/.test(p) },
+  { id:'norep',   label:'No 3+ repeated characters (aaa)',      test: p => !/(.)\1\1/.test(p) },
+  { id:'noseq',   label:'No common sequences (abc, 123)',       test: p => !/(?:abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|012|123|234|345|456|567|678|789)/i.test(p) },
+  { id:'nocommon',label:'Not a common password',                test: p => !['password','123456','qwerty','letmein','welcome','admin','login','pass','test'].includes(p.toLowerCase()) },
+];
+
+const rulesEl = document.getElementById('rules');
+rules.forEach(r => {
+  const d = document.createElement('div');
+  d.className = 'rule'; d.id = 'r_' + r.id;
+  d.innerHTML = `<div class="dot"></div><span>${r.label}</span>`;
+  rulesEl.appendChild(d);
+});
+
+function crackTime(p) {
+  let pool = 0;
+  if (/[a-z]/.test(p)) pool += 26;
+  if (/[A-Z]/.test(p)) pool += 26;
+  if (/\d/.test(p))    pool += 10;
+  if (/[^A-Za-z0-9]/.test(p)) pool += 32;
+  const secs = Math.pow(pool || 26, p.length) / 1e10;
+  if (secs < 1)        return 'instantly';
+  if (secs < 60)       return Math.round(secs) + ' seconds';
+  if (secs < 3600)     return Math.round(secs / 60) + ' minutes';
+  if (secs < 86400)    return Math.round(secs / 3600) + ' hours';
+  if (secs < 2592000)  return Math.round(secs / 86400) + ' days';
+  if (secs < 31536000) return Math.round(secs / 2592000) + ' months';
+  if (secs < 3.15e9)   return Math.round(secs / 31536000) + ' years';
+  return 'centuries';
+}
+
+const colors = {
+  weak:     { bars:['#E24B4A','#e5e5e5','#e5e5e5','#e5e5e5'], label:'#E24B4A', bg:'#FCEBEB', text:'#A32D2D' },
+  moderate: { bars:['#EF9F27','#EF9F27','#e5e5e5','#e5e5e5'], label:'#BA7517', bg:'#FEF3C7', text:'#854F0B' },
+  strong:   { bars:['#38a169','#38a169','#38a169','#e5e5e5'], label:'#276749', bg:'#F0FFF4', text:'#1C4532' },
+  very:     { bars:['#38a169','#38a169','#38a169','#38a169'], label:'#276749', bg:'#F0FFF4', text:'#1C4532' },
+};
+
+document.getElementById('pw').addEventListener('input', function () {
+  const p = this.value;
+  const results = rules.map(r => r.test(p));
+
+  rules.forEach((r, i) => {
+    document.getElementById('r_' + r.id).className = 'rule' + (p ? (results[i] ? ' pass' : ' fail') : '');
+  });
+
+  if (!p) {
+    document.getElementById('slabel').textContent = 'Enter a password';
+    document.getElementById('slabel').style.color = '#aaa';
+    document.getElementById('sbadge').textContent = '';
+    document.getElementById('sbadge').style.background = '';
+    document.getElementById('crack').style.display = 'none';
+    ['b1','b2','b3','b4'].forEach(id => document.getElementById(id).style.background = '#e5e5e5');
+    return;
+  }
+
+  const score = results.filter(Boolean).length;
+  const tier = score <= 3 ? colors.weak : score <= 5 ? colors.moderate : score <= 7 ? colors.strong : colors.very;
+  const tname = score <= 3 ? 'Weak' : score <= 5 ? 'Moderate' : score <= 7 ? 'Strong' : 'Very Strong';
+
+  ['b1','b2','b3','b4'].forEach((id, i) => document.getElementById(id).style.background = tier.bars[i]);
+
+  const sl = document.getElementById('slabel');
+  sl.textContent = tname; sl.style.color = tier.label;
+
+  const sb = document.getElementById('sbadge');
+  sb.textContent = score + '/' + rules.length + ' rules';
+  sb.style.background = tier.bg; sb.style.color = tier.text;
+
+  document.getElementById('crack').style.display = 'block';
+  document.getElementById('cracktime').textContent = crackTime(p);
+});
+
+function toggleVis() {
+  const pw = document.getElementById('pw');
+  pw.type = pw.type === 'password' ? 'text' : 'password';
+}
+</script>
+</body>
+</html>
